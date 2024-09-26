@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,7 +13,8 @@ class SocialShare {
     required String imagePath,
     String? backgroundTopColor,
     String? backgroundBottomColor,
-    String? backgroundResourcePath,
+    String? backgroundImagePath,
+    String? backgroundVideoPath,
     String? attributionURL,
   }) async {
     return shareMetaStory(
@@ -22,16 +24,19 @@ class SocialShare {
       backgroundTopColor: backgroundTopColor,
       backgroundBottomColor: backgroundBottomColor,
       attributionURL: attributionURL,
-      backgroundResourcePath: backgroundResourcePath,
+      backgroundImagePath: backgroundImagePath,
+      backgroundVideoPath: backgroundVideoPath,
     );
   }
 
+  /// Shares a story on Facebook with optional background video.
   static Future<String?> shareFacebookStory({
     required String appId,
     String? imagePath,
     String? backgroundTopColor,
     String? backgroundBottomColor,
-    String? backgroundResourcePath,
+    String? backgroundImagePath,
+    String? backgroundVideoPath,
     String? attributionURL,
   }) async {
     return shareMetaStory(
@@ -41,10 +46,12 @@ class SocialShare {
       backgroundTopColor: backgroundTopColor,
       backgroundBottomColor: backgroundBottomColor,
       attributionURL: attributionURL,
-      backgroundResourcePath: backgroundResourcePath,
+      backgroundImagePath: backgroundImagePath,
+      backgroundVideoPath: backgroundVideoPath,
     );
   }
 
+  /// General method to share stories on Meta platforms (Instagram/Facebook).
   static Future<String?> shareMetaStory({
     required String appId,
     required String platform,
@@ -52,19 +59,28 @@ class SocialShare {
     String? backgroundTopColor,
     String? backgroundBottomColor,
     String? attributionURL,
-    String? backgroundResourcePath,
+    String? backgroundImagePath,
+    String? backgroundVideoPath,
   }) async {
     var _imagePath = imagePath;
-    var _backgroundResourcePath = backgroundResourcePath;
+    var _backgroundImagePath = backgroundImagePath;
+    var _backgroundVideoPath = backgroundVideoPath;
 
     if (Platform.isAndroid) {
       var stickerFilename = "stickerAsset.png";
       await reSaveImage(imagePath, stickerFilename);
       _imagePath = stickerFilename;
-      if (backgroundResourcePath != null) {
-        var backgroundImageFilename = backgroundResourcePath.split("/").last;
-        await reSaveImage(backgroundResourcePath, backgroundImageFilename);
-        _backgroundResourcePath = backgroundImageFilename;
+
+      if (backgroundImagePath != null) {
+        var backgroundImageFilename = backgroundImagePath.split("/").last;
+        await reSaveImage(backgroundImagePath, backgroundImageFilename);
+        _backgroundImagePath = backgroundImageFilename;
+      }
+
+      if (backgroundVideoPath != null) {
+        var backgroundVideoFilename = backgroundVideoPath.split("/").last;
+        await reSaveFile(backgroundVideoPath, backgroundVideoFilename);
+        _backgroundVideoPath = backgroundVideoFilename;
       }
     }
 
@@ -76,36 +92,36 @@ class SocialShare {
       "appId": appId
     };
 
-    if (_backgroundResourcePath != null) {
-      var extension = _backgroundResourcePath.split(".").last;
-      if (["png", "jpg", "jpeg"].contains(extension.toLowerCase())) {
-        args["backgroundImage"] = _backgroundResourcePath;
-      } else {
-        args["backgroundVideo"] = _backgroundResourcePath;
-      }
+    if (_backgroundImagePath != null) {
+      args["backgroundImage"] = _backgroundImagePath;
+    }
+
+    if (_backgroundVideoPath != null) {
+      args["backgroundVideo"] = _backgroundVideoPath;
     }
 
     final String? response = await _channel.invokeMethod(platform, args);
     return response;
   }
 
+  /// Shares a tweet on Twitter.
   static Future<String?> shareTwitter(
     String captionText, {
     List<String>? hashtags,
     String? url,
     String? trailingText,
   }) async {
-    //Caption
+    // Caption
     var _captionText = captionText;
 
-    //Hashtags
+    // Hashtags
     if (hashtags != null && hashtags.isNotEmpty) {
       final tags = hashtags.map((t) => '#$t ').join(' ');
       _captionText = _captionText + "\n" + tags.toString();
     }
 
-    //Url
-    String _url;
+    // URL
+    String _url = '';
     if (url != null) {
       if (Platform.isAndroid) {
         _url = Uri.parse(url).toString().replaceAll('#', "%23");
@@ -126,6 +142,7 @@ class SocialShare {
     return version;
   }
 
+  /// Shares a message via SMS.
   static Future<String?> shareSms(String message,
       {String? url, String? trailingText}) async {
     Map<String, dynamic>? args;
@@ -150,6 +167,7 @@ class SocialShare {
     return version;
   }
 
+  /// Copies text or image to the clipboard.
   static Future<String?> copyToClipboard({String? text, String? image}) async {
     final Map<String, dynamic> args = <String, dynamic>{
       "content": text,
@@ -160,6 +178,7 @@ class SocialShare {
     return response;
   }
 
+  /// Presents native share options.
   static Future<bool?> shareOptions(String contentText,
       {String? imagePath}) async {
     Map<String, dynamic> args;
@@ -177,29 +196,29 @@ class SocialShare {
     return version;
   }
 
+  /// Shares content on WhatsApp.
   static Future<String?> shareWhatsapp(String content) async {
     final Map<String, dynamic> args = <String, dynamic>{"content": content};
     final String? version = await _channel.invokeMethod('shareWhatsapp', args);
     return version;
   }
 
+  /// Checks which apps are installed for sharing.
   static Future<Map?> checkInstalledAppsForShare() async {
     final Map? apps = await _channel.invokeMethod('checkInstalledApps');
     return apps;
   }
 
+  /// Shares content on Telegram.
   static Future<String?> shareTelegram(String content) async {
     final Map<String, dynamic> args = <String, dynamic>{"content": content};
     final String? version = await _channel.invokeMethod('shareTelegram', args);
     return version;
   }
 
-// static Future<String> shareSlack() async {
-//   final String version = await _channel.invokeMethod('shareSlack');
-//   return version;
-// }
+  // Utility Methods
 
-  //Utils
+  /// Resaves an image to the temporary directory with a new filename.
   static Future<bool> reSaveImage(String? imagePath, String filename) async {
     if (imagePath == null) {
       return false;
@@ -207,13 +226,25 @@ class SocialShare {
     final tempDir = await getTemporaryDirectory();
 
     File file = File(imagePath);
-    Uint8List bytes = file.readAsBytesSync();
-    var stickerData = bytes.buffer.asUint8List();
-    String stickerAssetName = filename;
-    final Uint8List stickerAssetAsList = stickerData;
-    final stickerAssetPath = '${tempDir.path}/$stickerAssetName';
+    Uint8List bytes = await file.readAsBytes();
+    final stickerAssetPath = '${tempDir.path}/$filename';
     file = await File(stickerAssetPath).create();
-    file.writeAsBytesSync(stickerAssetAsList);
+    await file.writeAsBytes(bytes);
+    return true;
+  }
+
+  /// Resaves a generic file (e.g., video) to the temporary directory with a new filename.
+  static Future<bool> reSaveFile(String? filePath, String filename) async {
+    if (filePath == null) {
+      return false;
+    }
+    final tempDir = await getTemporaryDirectory();
+
+    File file = File(filePath);
+    Uint8List bytes = await file.readAsBytes();
+    final fileAssetPath = '${tempDir.path}/$filename';
+    file = await File(fileAssetPath).create();
+    await file.writeAsBytes(bytes);
     return true;
   }
 }
